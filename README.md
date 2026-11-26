@@ -1,41 +1,46 @@
-﻿# Tech Radar & Rastreador de Candidaturas (Servidor MCP)
+﻿# Tech Radar & Rastreador de Candidaturas (Servidor MCP + Skill)
 
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![MCP](https://img.shields.io/badge/MCP-2.3.0-8A2BE2?style=for-the-badge)
 ![SQLite](https://img.shields.io/badge/SQLite-Local_DB-003B57?style=for-the-badge&logo=sqlite&logoColor=white)
 ![HTTPX](https://img.shields.io/badge/HTTPX-Async_Client-2B5B84?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-MVP_Funcional-2EA44F?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-Evolu%C3%ADdo_com_Skill_%26_Workspace-2EA44F?style=for-the-badge)
 
 ## Sobre o Projeto
 
-Este projeto foi desenvolvido como **entrega de encerramento do módulo de Claude** do curso de **Inteligência Artificial da Ada Tech**. O desafio proposto consistiu na construção de um servidor **Model Context Protocol (MCP)** em Python conectado ao **Claude Desktop** via transporte `stdio`, integrando ferramentas locais a APIs externas e conectores nativos para resolver um problema prático de tema livre.
+Este projeto foi desenvolvido como **entrega de encerramento do módulo de Claude** do curso de **Inteligência Artificial da Ada Tech**. A solução implementa um servidor **Model Context Protocol (MCP)** em Python conectado ao **Claude Desktop** via transporte `stdio`, combinado com uma **Skill personalizada (`tech-radar-carreira`)** e conectores nativos do **Google Workspace (Gmail e Google Calendar)**.
 
-Mais do que um exercício acadêmico, a aplicação foi projetada para atender a uma necessidade real da minha **transição de carreira para a área de Tecnologia (Desenvolvimento Back-End Júnior e Automação/RPA)**: centralizar a busca de oportunidades tech, avaliar automaticamente a aderência das vagas ao meu perfil técnico e eliminar a perda de controle sobre processos seletivos espalhados por múltiplas plataformas (Gupy, Eureca, LinkedIn, Indeed, Pandapé, entre outras).
+Projetado para apoiar minha **transição de carreira para Desenvolvimento Back-End Júnior e Automação/RPA**, o sistema centraliza a prospecção de vagas no Brasil e no exterior, calcula aderência técnica (*scorecard* ponderado) com base no meu perfil real, protege contra *prompt injection* em descrições externas e automatiza o controle de candidaturas e *follow-ups*.
 
 ---
 
 ## O que o Sistema Resolve
 
-Durante a busca ativa por recolocação, dois gargalos são recorrentes: o tempo gasto filtrando vagas desalinhadas com a stack atual e a dificuldade de acompanhar datas de inscrição, canais utilizados e prazos de testes técnicos. O **Tech Radar MCP** transforma o Claude Desktop em um assistente operacional de carreira por meio de três pilares:
-
-1. **Contexto Profissional Dinâmico:** O servidor disponibiliza meu resumo profissional, formação e projetos de portfólio diretamente para o modelo, permitindo diagnósticos reais de compatibilidade (*gap analysis*) sem alucinações.
-2. **Prospecção em APIs Públicas:** Consulta oportunidades reais de tecnologia em tempo real, aplicando filtros por palavras-chave e stack.
-3. **Rastreabilidade & Relatórios de Follow-up:** Persiste cada candidatura em um banco de dados relacional local (**SQLite**), calcula há quantos dias a inscrição foi realizada e exporta relatórios consolidados em Markdown para acompanhamento contínuo.
+1. **Contexto Profissional Estruturado:** Lê dinamicamente o perfil técnico (`data/meu_perfil.md`) com matriz de competências, projetos e critérios de filtro para diagnósticos precisos sem alucinações.
+2. **Prospecção Brasil & Exterior em Tempo Real:** Consulta vagas abertas da comunidade brasileira (`backend-br/vagas` via API do GitHub) e portais internacionais remotos (**Remotive** e **Arbeitnow**).
+3. **Rastreabilidade, Follow-up & Google Workspace:** Persiste candidaturas em banco local (**SQLite**), identifica processos parados há 7 dias ou mais, gera relatórios em Markdown e cruza convites de entrevista e prazos de testes técnicos com o **Gmail** e a **Google Agenda**.
 
 ---
 
-## Arquitetura e Ferramentas (`@mcp.tool`)
+## Arquitetura: Servidor MCP + Skill + Google Workspace
 
-O servidor (`server.py`) utiliza o SDK oficial `mcp[cli]==2.3` e expõe **6 ferramentas customizadas** para o Claude Desktop:
+### 1. Ferramentas do Servidor MCP (`server.py` — 8 `@mcp.tool`)
 
 | Módulo | Ferramenta | Descrição Técnica |
 | :--- | :--- | :--- |
-| **Perfil** | `obter_meu_perfil` | Lê dinamicamente o arquivo `data/meu_perfil.md` com stack, certificações e projetos para comparação de requisitos. |
-| **Prospecção** | `buscar_vagas_tech` | Consulta a API pública **Remotive** (`software-dev`) filtrando vagas recentes por palavra-chave no título, tags e descrição. |
-| **Prospecção** | `buscar_vagas_internacionais` | Consulta a API pública **Arbeitnow** para mapear vagas remotas e internacionais por título e tags técnicas. |
+| **Perfil** | `obter_meu_perfil` | Lê `data/meu_perfil.md` com stack, projetos e matriz de critérios para comparação de requisitos. |
+| **Prospecção BR** | `buscar_vagas_brasil` | Consulta a API pública do GitHub no repositório **`backend-br/vagas`** filtrando por tecnologia e senioridade (ex.: `python`, `junior`). |
+| **Prospecção Global** | `buscar_vagas_tech` | Consulta a API pública **Remotive** (`software-dev`) filtrando vagas recentes por palavra-chave no título, tags e descrição. |
+| **Prospecção Global** | `buscar_vagas_internacionais` | Consulta a API pública **Arbeitnow** para mapear vagas remotas e internacionais por título e tags técnicas. |
 | **Histórico** | `registrar_candidatura` | Insere uma nova candidatura no banco `data/candidaturas.db` (empresa, cargo, plataforma, data, status, link e observações). |
-| **Histórico** | `atualizar_status_candidatura` | Atualiza o estágio do processo (*Inscrita*, *Teste Técnico*, *Entrevista RH*, *Entrevista Técnica*, *Aprovada*, *Reprovada*) e registra notas com data. |
+| **Histórico** | `atualizar_status_candidatura` | Atualiza o estágio do processo (*Inscrita*, *Teste Técnico*, *Entrevista RH*, *Entrevista Técnica*, *Aprovada*, *Reprovada*) e registra notas datadas. |
+| **Follow-up** | `verificar_followups` | Identifica candidaturas ativas paradas há X dias ou mais (padrão: 7 dias) sem atualização de status. |
 | **Relatórios** | `gerar_relatorio_candidaturas` | Consulta o SQLite com filtros opcionais, calcula dias corridos desde a inscrição e salva uma tabela em `relatorios/relatorio_candidaturas.md`. |
+
+### 2. Skill Personalizada (`skills/tech-radar-carreira/SKILL.md`)
+* **Scorecard Padronizado:** Calcula nota de aderência (0% a 100%), lista **Pontos Fortes**, **Pontos de Atenção / Gaps** e gera rascunho de abordagem para recrutador no LinkedIn quando o *match* é $\ge 70\%$.
+* **Segurança (Anti-Prompt Injection):** Trata textos vindos de APIs externas e e-mails estritamente como dados não confiáveis, ignorando instruções ocultas.
+* **Orquestração Google Workspace:** Cruza e-mails de processos seletivos no **Gmail** com o histórico local e oferece agendar entrevistas ou prazos de testes na **Google Agenda** mediante confirmação.
 
 ---
 
@@ -43,16 +48,20 @@ O servidor (`server.py`) utiliza o SDK oficial `mcp[cli]==2.3` e expõe **6 ferr
 
 ```text
 tech_radar_mcp/
-├── .venv/                          # Ambiente virtual Python isolado
+├── .venv/                              # Ambiente virtual Python isolado (ignorado no Git)
 ├── data/
-│   ├── candidaturas.db             # Banco de dados SQLite (gerado automaticamente)
-│   └── meu_perfil.md               # Base de conhecimento com stack, formação e projetos
+│   ├── candidaturas.db                 # Banco SQLite local (ignorado no Git)
+│   ├── meu_perfil.md                   # Perfil real da candidata (ignorado no Git por privacidade)
+│   └── meu_perfil.example.md           # Template público com nota de segurança
 ├── relatorios/
-│   └── relatorio_candidaturas.md   # Relatório Markdown gerado sob demanda
-├── .gitignore                      # Proteção de dados sensíveis (*.db, relatórios e .venv)
-├── README.md                       # Documentação do projeto
-├── requirements.txt                # Dependências fixadas do ambiente
-└── server.py                       # Servidor MCP e implementação das tools
+│   └── .gitkeep                        # Mantém diretório versionado sem expor relatórios locais
+├── skills/
+│   └── tech-radar-carreira/
+│       └── SKILL.md                    # Definição versionada da Skill do Claude Desktop
+├── .gitignore                          # Proteção de dados sensíveis (*.db, perfil real e .venv)
+├── README.md                           # Documentação do projeto
+├── requirements.txt                    # Dependências fixadas (mcp[cli], httpx)
+└── server.py                           # Servidor MCP e implementação das 8 tools
 ```
 
 ---
@@ -61,7 +70,7 @@ tech_radar_mcp/
 
 ### 1. Clonar o repositório e configurar o ambiente virtual
 ```powershell
-git clone <URL_DO_SEU_REPOSITORIO>
+git clone [https://github.com/TayagaRayanne/tech-radar-mcp.git](https://github.com/TayagaRayanne/tech-radar-mcp.git)
 cd tech_radar_mcp
 
 python -m venv .venv
@@ -69,11 +78,11 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 2. Personalizar o perfil profissional
-Edite o arquivo `data/meu_perfil.md` com suas tecnologias, experiências e objetivos de carreira.
+### 2. Criar seu perfil local
+Copie o arquivo modelo `data/meu_perfil.example.md` para `data/meu_perfil.md` e preencha com suas tecnologias, formação e critérios de busca.
 
-### 3. Registrar o servidor no Claude Desktop
-No **Claude Desktop**, acesse **Configurações → Aplicativo para desktop → Extensões → Gerenciar** para abrir o `claude_desktop_config.json` e adicione a configuração abaixo apontando para os caminhos absolutos da sua `.venv` e do `server.py`:
+### 3. Registrar o servidor e a Skill no Claude Desktop
+1. No **Claude Desktop**, acesse **Configurações → Aplicativo para desktop → Extensões → Gerenciar** (`claude_desktop_config.json`) e adicione:
 
 ```json
 {
@@ -88,36 +97,23 @@ No **Claude Desktop**, acesse **Configurações → Aplicativo para desktop → 
 }
 ```
 
-Reinicie completamente o Claude Desktop pela bandeja do sistema para carregar o conector `tech-radar-vagas`.
+2. Em **Configurações → Plugins → Skills**, importe ou crie a Skill a partir de `skills/tech-radar-carreira/SKILL.md` e vincule os conectores **Gmail** e **Google Calendar**.
 
 ---
 
-## Exemplos de Uso no Claude Desktop
+## Segurança e Privacidade (LGPD)
 
-* **Análise de Aderência (Busca + Perfil):**
-  > *"Usa o Tech Radar para buscar vagas recentes de Python e compara os requisitos com o meu perfil."*
-* **Registro Rápido de Inscrição:**
-  > *"Registra que me inscrevi hoje na plataforma Gupy para Desenvolvedora Python Júnior na empresa X, com prazo de teste técnico até sexta-feira."*
-* **Atualização de Processo Seletivo:**
-  > *"Atualiza minha candidatura da empresa X para 'Teste Técnico Enviado'."*
-* **Geração de Relatório de Acompanhamento:**
-  > *"Gera meu relatório completo de candidaturas e destaca quais estão há mais de 7 dias sem atualização."*
-* **Orquestração com Conectores Nativos (Google Workspace):**
-  > *"Verifica meus e-mails recentes da Gupy e Eureca no Gmail e registra no Tech Radar as candidaturas que ainda não estão no meu histórico."*
+* **Isolamento de Dados Pessoais:** O banco `data/candidaturas.db`, os relatórios gerados e o arquivo real `data/meu_perfil.md` são bloqueados pelo `.gitignore`, permanecendo exclusivamente no ambiente local da usuária.
+* **Sem Exposição de Credenciais:** Todas as APIs externas consumidas (`GitHub Issues`, `Remotive` e `Arbeitnow`) são públicas e não exigem chaves em código.
+* **Defesa contra Prompt Injection:** A Skill instrui o modelo a tratar descrições de vagas e e-mails externos apenas como dados, bloqueando comandos embutidos.
 
 ---
 
-## Escopo Atual & Roadmap de Melhorias Futuras
+## Roadmap de Evoluções Futuras
 
-Por ter sido concebido e entregue dentro de um **prazo curto** para a finalização do módulo na Ada Tech, o projeto foi estruturado como um **MVP (Produto Mínimo Viável)** enxuto, funcional e livre de dependências externas pagas.
-
-Como esta ferramenta será utilizada ativamente na minha jornada de transição de carreira para encontrar e gerenciar vagas reais, as próximas evoluções planejadas incluem:
-
-- [ ] **Integração com Portais Brasileiros e Vagas Júnior:** Adicionar coletores/APIs focados no mercado brasileiro (como repositórios de vagas do GitHub `backend-br`, `qa-brasil` e agregadores nacionais) para ampliar o volume de oportunidades de nível Júnior no Brasil.
-- [ ] **Sistema de Pontuação de Match (Scoring):** Implementar um algoritmo de ranqueamento em Python que calcule uma nota percentual de compatibilidade entre a descrição da vaga e as palavras-chave do `meu_perfil.md` antes mesmo de exibir os resultados.
-- [ ] **Alertas Automáticos de Follow-up e Prazos:** Criar uma ferramenta de verificação proativa que identifique candidaturas paradas há mais de 7 ou 14 dias e sugira mensagens personalizadas de acompanhamento para recrutadores.
-- [ ] **Exportação Multi-formato (CSV / Excel):** Expandir o módulo de relatórios para exportar planilhas `.csv` e `.xlsx` formatadas, além do Markdown atual.
-- [ ] **Validação Rigorosa com Pydantic v2 & Testes Unitários:** Refatorar os schemas de entrada das *tools* utilizando modelos `Pydantic v2` e adicionar uma suíte de testes automatizados com `Pytest` para garantir a integridade das operações no SQLite.
+- [ ] **Sistema de Scoring Determinístico em Python:** Calcular pontuação matemática ponderada diretamente no backend antes da análise semântica do LLM.
+- [ ] **Exportação Multi-formato (CSV / Excel):** Adicionar exportação em `.csv` e `.xlsx` além do relatório Markdown atual.
+- [ ] **Validação com Pydantic v2 & Testes Unitários (Pytest):** Adicionar modelos Pydantic nos parâmetros das *tools* e suíte automatizada de testes para o banco SQLite.
 
 ---
 
@@ -125,12 +121,13 @@ Como esta ferramenta será utilizada ativamente na minha jornada de transição 
 
 * **Python 3.13**
 * **MCP SDK (`mcp[cli]==2.3`)** — Comunicação via protocolo `stdio` entre ferramentas locais e o Claude Desktop
-* **HTTPX** — Requisições assíncronas para consumo de APIs REST
-* **SQLite3** — Persistência relacional leve para histórico de candidaturas
+* **HTTPX** — Requisições assíncronas para consumo das APIs GitHub (`backend-br/vagas`), Remotive e Arbeitnow
+* **SQLite3** — Persistência relacional local para histórico de candidaturas e controle de *follow-up*
+* **Claude Skills & Google Workspace** — Padronização de comportamento do agente e integração com Gmail/Google Calendar
 
 ---
 
 ## Autora
 
 **Tayga Rayanne**  
-Desenvolvedora Back-End & Automação/RPA | Graduanda em Banco de Dados | Tecnóloga em Análise e Desenvolvimento de Sistemas
+Desenvolvedora Back-End & Automação/RPA | Graduanda em Banco de Dados | Analista e Desenvolvedora de Sistemas

@@ -15,7 +15,7 @@ PERFIL_PATH = DATA_DIR / "meu_perfil.md"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 RELATORIOS_DIR.mkdir(parents=True, exist_ok=True)
 
-USER_AGENT = "TechRadarMCP/1.0 (AdaTech-ModuloClaude)"
+USER_AGENT = "TechRadarMCP/1.1 (AdaTech-ModuloClaude)"
 
 # Inicializa o servidor MCP
 mcp = MCPServer("tech-radar-vagas")
@@ -65,8 +65,82 @@ def obter_meu_perfil() -> str:
 
 
 # =====================================================================
-# MÓDULO 1: BUSCA DE VAGAS EM APIS EXTERNAS
+# MÓDULO 1: BUSCA DE VAGAS EM APIS EXTERNAS (BRASIL & INTERNACIONAL)
 # =====================================================================
+
+@mcp.tool()
+async def buscar_vagas_brasil(
+    palavra_chave: str = "python",
+    senioridade: str = "junior",
+    limite: int = 5
+) -> str:
+    """
+    Busca vagas abertas no mercado brasileiro através da API pública do GitHub
+    no repositório oficial da comunidade 'backend-br/vagas', filtrando por
+    tecnologia (ex: 'python', 'fastapi', 'sql', 'backend') e senioridade (ex: 'junior', 'pleno', '').
+    """
+    url = "https://api.github.com/repos/backend-br/vagas/issues"
+    params = {"state": "open", "per_page": 50}
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/vnd.github+json"
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            response = await client.get(url, params=params, headers=headers)
+            response.raise_for_status()
+            issues = response.json()
+        except httpx.HTTPError as e:
+            return f"Erro ao consultar vagas brasileiras no GitHub (backend-br): {str(e)}"
+
+    termo_tech = palavra_chave.strip().lower()
+    termo_nivel = senioridade.strip().lower()
+
+    vagas_filtradas = []
+    for item in issues:
+        # Ignora Pull Requests caso venham na listagem
+        if "pull_request" in item:
+            continue
+
+        titulo = item.get("title", "").lower()
+        corpo = (item.get("body") or "").lower()
+        labels = [lbl.get("name", "").lower() for lbl in item.get("labels", [])]
+        texto_completo = f"{titulo} {' '.join(labels)} {corpo}"
+
+        bate_tech = not termo_tech or (termo_tech in texto_completo)
+        bate_nivel = not termo_nivel or (termo_nivel in texto_completo)
+
+        if bate_tech and bate_nivel:
+            vagas_filtradas.append(item)
+
+    if not vagas_filtradas:
+        return (
+            f"Nenhuma vaga aberta encontrada em 'backend-br/vagas' para "
+            f"tecnologia='{palavra_chave}' e senioridade='{senioridade}'."
+        )
+
+    linhas = [
+        f"### Vagas no Brasil (backend-br/vagas) — Filtro: `{palavra_chave}` | `{senioridade or 'Todas'}`:\n"
+    ]
+    for vaga in vagas_filtradas[:limite]:
+        titulo = vaga.get("title", "Sem título")
+        labels_nomes = [lbl.get("name", "") for lbl in vaga.get("labels", [])[:6]]
+        tags = ", ".join(labels_nomes) or "Sem etiquetas"
+        data_pub = vaga.get("created_at", "")[:10]
+        link = vaga.get("html_url", "")
+        resumo = (vaga.get("body") or "").strip().replace("\r\n", " ").replace("\n", " ")[:220]
+
+        linhas.append(
+            f"- **{titulo}**\n"
+            f"  - Etiquetas: {tags}\n"
+            f"  - Publicada em: {data_pub}\n"
+            f"  - Resumo: {resumo}...\n"
+            f"  - Link: {link}"
+        )
+
+    return "\n".join(linhas)
+
 
 @mcp.tool()
 async def buscar_vagas_tech(palavra_chave: str = "python", limite: int = 5) -> str:
@@ -89,7 +163,6 @@ async def buscar_vagas_tech(palavra_chave: str = "python", limite: int = 5) -> s
     todas_vagas = dados.get("jobs", [])
     termo = palavra_chave.strip().lower()
 
-    # Filtra rigorosamente no título, tags ou descrição para evitar resultados genéricos
     vagas_filtradas = [
         v for v in todas_vagas
         if termo in v.get("title", "").lower()
@@ -165,7 +238,7 @@ async def buscar_vagas_internacionais(termo: str = "python", limite: int = 5) ->
 
 
 # =====================================================================
-# MÓDULO 2: HISTÓRICO E RASTREAMENTO DE CANDIDATURAS (SQLITE + RELATÓRIOS)
+# MÓDULO 2: HISTÓRICO, FOLLOW-UPS E RELATÓRIOS (SQLITE)
 # =====================================================================
 
 @mcp.tool()
@@ -191,7 +264,16 @@ def registrar_candidatura(
                 empresa, cargo, plataforma, data_inscricao, status, link, observacoes, ultima_atualizacao
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (empresa.strip(), cargo.strip(), plataforma.strip(), data_final, status.strip(), link.strip(), observacoes.strip(), hoje)
+            (
+                empresa.strip(),
+                cargo.strip(),
+                plataforma.strip(),
+                data_final,
+                status.strip(),
+                link.strip(),
+                observacoes.strip(),
+                hoje
+            )
         )
         novo_id = cursor.lastrowid
         conn.commit()
@@ -249,6 +331,55 @@ def atualizar_status_candidatura(
         f"- **Novo Status:** {novo_status}\n"
         f"- **Observações:** {obs_final or 'Nenhuma'}"
     )
+
+
+@mcp.tool()
+def verificar_followups(dias_sem_resposta: int = 7) -> str:
+    """
+    Verifica candidaturas ativas no banco SQLite que estão há 'dias_sem_resposta' ou mais
+    sem atualização de status, ajudando a identificar onde fazer follow-up com recrutadores.
+    """
+    status_encerrados = ("aprovada", "reprovada", "desistência", "encerrada", "cancelada")
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        registros = conn.execute(
+            "SELECT * FROM candidaturas ORDER BY ultima_atualizacao ASC, id ASC"
+        ).fetchall()
+
+    if not registros:
+        return "Nenhuma candidatura cadastrada no banco de dados ainda."
+
+    hoje_dt = datetime.now()
+    pendentes = []
+
+    for r in registros:
+        if r["status"].strip().lower() in status_encerrados:
+            continue
+
+        try:
+            dt_ref = datetime.strptime(r["ultima_atualizacao"], "%Y-%m-%d")
+            dias_parados = (hoje_dt - dt_ref).days
+        except ValueError:
+            continue
+
+        if dias_parados >= dias_sem_resposta:
+            pendentes.append((dias_parados, r))
+
+    if not pendentes:
+        return f"Nenhuma candidatura ativa está parada há {dias_sem_resposta} dias ou mais."
+
+    linhas = [
+        f"### Candidaturas pendentes de Follow-up (>= {dias_sem_resposta} dias sem atualização):\n"
+    ]
+    for dias_parados, r in pendentes:
+        linhas.append(
+            f"- **#{r['id']} {r['empresa']}** — {r['cargo']} ({r['plataforma']})\n"
+            f"  - Status atual: `{r['status']}` | Parada há: **{dias_parados} dias** (última atualização: {r['ultima_atualizacao']})\n"
+            f"  - Observações: {r['observacoes'] or 'Nenhuma'}"
+        )
+
+    return "\n".join(linhas)
 
 
 @mcp.tool()
